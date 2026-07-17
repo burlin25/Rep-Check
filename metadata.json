@@ -1,0 +1,6 @@
+{
+  "name": "RepCheck",
+  "description": "The friendly, bubbly gym social space. Share gym updates, give 👊 knucks, chat in groups, view consistency charts, and track your PRs with your gym bros.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

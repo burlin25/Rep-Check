@@ -1,6 +1,6 @@
 {
   "name": "RepCheck",
-  "description": "The friendly, bubbly gym social space. Share gym updates, give 👊 knucks, chat in groups, view consistency charts, and track your PRs with your gym bros.",
+  "description": "The gym social network for lifters who show up. Share sessions, give knucks, chat in squad rooms, track streaks, and log PRs with your crew.",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

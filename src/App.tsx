@@ -1,474 +1,264 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, User, Plus, Dumbbell, ArrowRight, Check } from 'lucide-react';
+import { Dumbbell, Plus, MessageSquare, Flame, User } from 'lucide-react';
 import MobileFrame from './components/MobileFrame';
-import MessagesTab from './components/MessagesTab';
+import FeedTab from './components/FeedTab';
+import ChatsTab from './components/ChatsTab';
+import PostTab from './components/PostTab';
+import StreaksTab from './components/StreaksTab';
 import ProfileTab from './components/ProfileTab';
-import PostModal from './components/PostModal';
-import { motion, AnimatePresence } from 'motion/react';
-
+import AuthView from './components/AuthView';
+import { GymBuddy, WorkoutPost, PersonalPR, UserProfile, GroupChat, GroupMessage } from './types';
+import { calculateStreak } from './lib/streak';
 import { 
-  GymBuddy, 
-  WorkoutPost, 
-  PersonalPR, 
-  UserProfile
-} from './types';
-
-import { 
-  INITIAL_BUDDIES, 
-  INITIAL_POSTS, 
-  INITIAL_PRS
-} from './initialData';
-
-// Bubbly, friendly avatar palette
-const AVATAR_PALETTE = [
-  { name: 'Sunny Lime', colors: 'bg-emerald-400 text-neutral-950 font-black ring-4 ring-emerald-500/10' },
-  { name: 'Peach Crush', colors: 'bg-rose-400 text-neutral-950 font-black ring-4 ring-rose-500/10' },
-  { name: 'Cotton Candy', colors: 'bg-pink-400 text-neutral-950 font-black ring-4 ring-pink-500/10' },
-  { name: 'Sky Spark', colors: 'bg-cyan-400 text-neutral-950 font-black ring-4 ring-cyan-500/10' },
-  { name: 'Cream Honey', colors: 'bg-amber-400 text-neutral-950 font-black ring-4 ring-amber-500/10' },
-];
+  getSavedAccounts, 
+  saveAccounts, 
+  getSavedCurrentUser, 
+  saveCurrentUser, 
+  loadUserData, 
+  saveUserData 
+} from './lib/storage';
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
-    try {
-      const saved = localStorage.getItem('repcheck_current_user');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
-
-  const [allAccounts, setAllAccounts] = useState<UserProfile[]>(() => {
-    try {
-      const saved = localStorage.getItem('repcheck_all_accounts');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getSavedCurrentUser());
+  const [allAccounts, setAllAccounts] = useState<UserProfile[]>(() => getSavedAccounts());
 
   useEffect(() => {
-    localStorage.setItem('repcheck_all_accounts', JSON.stringify(allAccounts));
+    saveAccounts(allAccounts);
   }, [allAccounts]);
 
-  const handleRegisterAccount = (name: string, handle: string, colors: string, streak: number) => {
-    const cleanHandle = handle.trim().startsWith('@') ? handle.trim().toLowerCase() : `@${handle.trim().toLowerCase()}`;
-    const newAcc: UserProfile = {
-      id: `user-${Date.now()}`,
-      name: name.trim(),
-      handle: cleanHandle,
-      avatarColor: colors,
-      streak: streak,
-      joinedDate: 'June 2026'
-    };
+  const handleSelectAccount = (account: UserProfile) => {
+    setCurrentUser(account);
+    saveCurrentUser(account);
+  };
 
+  const handleRegisterAccount = (newAcc: UserProfile) => {
     setAllAccounts(prev => {
-      const filtered = prev.filter(a => a.handle !== cleanHandle);
-      return [...filtered, newAcc];
+      const filtered = prev.filter(a => a.handle.toLowerCase() !== newAcc.handle.toLowerCase());
+      const updated = [...filtered, newAcc];
+      saveAccounts(updated);
+      return updated;
     });
 
     setCurrentUser(newAcc);
-    localStorage.setItem('repcheck_current_user', JSON.stringify(newAcc));
+    saveCurrentUser(newAcc);
 
-    // Clear and initialize local databases for this new user
-    localStorage.setItem(`gymsocial_lifting_streak_${newAcc.id}`, String(streak));
-    localStorage.setItem(`gymsocial_posts_${newAcc.id}`, JSON.stringify(INITIAL_POSTS));
-    localStorage.setItem(`gymsocial_buddies_${newAcc.id}`, JSON.stringify(INITIAL_BUDDIES));
-    localStorage.setItem(`gymsocial_prs_${newAcc.id}`, JSON.stringify(INITIAL_PRS));
-  };
-
-  const handleSwitchAccount = (account: UserProfile) => {
-    setCurrentUser(account);
-    localStorage.setItem('repcheck_current_user', JSON.stringify(account));
+    // Initialize clean user data stores
+    saveUserData(newAcc.id, 'workout_dates', []);
+    saveUserData(newAcc.id, 'posts', []);
+    saveUserData(newAcc.id, 'buddies', []);
+    saveUserData(newAcc.id, 'prs', []);
+    saveUserData(newAcc.id, 'groups', []);
+    saveUserData(newAcc.id, 'group_messages', []);
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
-    localStorage.removeItem('repcheck_current_user');
+    saveCurrentUser(null);
   };
 
   if (!currentUser) {
     return (
-      <OnboardingView 
-        allAccounts={allAccounts} 
-        onSelectAccount={handleSwitchAccount} 
-        onRegister={handleRegisterAccount} 
-      />
+      <MobileFrame>
+        <AuthView 
+          allAccounts={allAccounts}
+          onSelectAccount={handleSelectAccount}
+          onRegisterAccount={handleRegisterAccount}
+        />
+      </MobileFrame>
     );
   }
 
   return (
     <AppInner 
-      key={currentUser.id} 
       currentUser={currentUser} 
+      setCurrentUser={setCurrentUser}
       onLogout={handleLogout} 
+      setAllAccounts={setAllAccounts}
     />
-  );
-}
-
-// --- ONBOARDING SECTOR ---
-interface OnboardingProps {
-  allAccounts: UserProfile[];
-  onSelectAccount: (acc: UserProfile) => void;
-  onRegister: (name: string, handle: string, colors: string, streak: number) => void;
-}
-
-function OnboardingView({ allAccounts, onSelectAccount, onRegister }: OnboardingProps) {
-  const [step, setStep] = useState<'welcome' | 'name' | 'handle' | 'streak' | 'avatar'>(() => {
-    return allAccounts.length > 0 ? 'welcome' : 'name';
-  });
-
-  const [name, setName] = useState('');
-  const [handle, setHandle] = useState('');
-  const [selectedAvatarColor, setSelectedAvatarColor] = useState(AVATAR_PALETTE[0].colors);
-  const [startingStreak, setStartingStreak] = useState<number>(3);
-  const [regError, setRegError] = useState<string | null>(null);
-
-  const slideVariants = {
-    initial: { opacity: 0, x: 20 },
-    animate: { opacity: 1, x: 0, transition: { duration: 0.3 } },
-    exit: { opacity: 0, x: -20, transition: { duration: 0.2 } }
-  };
-
-  const handleNameContinue = () => {
-    if (!name.trim()) {
-      setRegError("Please enter your display name.");
-      return;
-    }
-    setRegError(null);
-    setStep('handle');
-  };
-
-  const handleHandleContinue = () => {
-    const trimmed = handle.trim();
-    if (!trimmed) {
-      setRegError("Please choose a profile handle.");
-      return;
-    }
-    const cleanHandle = trimmed.startsWith('@') ? trimmed.toLowerCase() : `@${trimmed.toLowerCase()}`;
-    const handleInUse = allAccounts.some(acc => acc.handle === cleanHandle);
-    if (handleInUse) {
-      setRegError(`The handle ${cleanHandle} is already registered!`);
-      return;
-    }
-    setRegError(null);
-    setStep('streak');
-  };
-
-  return (
-    <MobileFrame>
-      <div className="flex-1 flex flex-col justify-between bg-[#0e0c15] text-neutral-100 overflow-y-auto no-scrollbar px-6 py-8 select-none font-sans relative">
-        <div className="flex-1 flex flex-col justify-center max-w-sm mx-auto w-full">
-          
-          <AnimatePresence mode="wait">
-            {step === 'welcome' && (
-              <motion.div 
-                key="welcome"
-                variants={slideVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="space-y-6 py-4 text-center"
-              >
-                <div className="flex flex-col items-center space-y-4">
-                  <div className="w-16 h-16 rounded-[2rem] bg-gradient-to-tr from-emerald-400 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-500/10">
-                    <Dumbbell className="w-8 h-8 text-neutral-950 stroke-[2.5]" />
-                  </div>
-                  
-                  <div>
-                    <h1 className="text-4xl font-black tracking-tight text-white font-display leading-tight uppercase">
-                      RepCheck
-                    </h1>
-                    <p className="text-sm text-neutral-400 mt-2 leading-relaxed">
-                      Welcome to the friendliest, most basic gym social network ever! 👊
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-4 pt-6">
-                  <button
-                    onClick={() => setStep('name')}
-                    className="w-full bg-emerald-400 hover:bg-emerald-300 text-neutral-950 font-black py-4 rounded-3xl uppercase tracking-wider text-xs transition shadow-md bubble-hover cursor-pointer"
-                  >
-                    Create New Account 🚀
-                  </button>
-
-                  {allAccounts.length > 0 && (
-                    <div className="space-y-2 pt-4 border-t border-purple-950/30">
-                      <span className="block text-[10px] font-black uppercase tracking-widest text-neutral-500 text-left mb-2">
-                        Select Existing Account
-                      </span>
-                      <div className="max-h-48 overflow-y-auto no-scrollbar space-y-2">
-                        {allAccounts.map(acc => (
-                          <div 
-                            key={acc.id}
-                            onClick={() => onSelectAccount(acc)}
-                            className="bg-[#191624] hover:bg-[#201c2e] p-3 rounded-2xl border border-purple-950/20 flex items-center justify-between cursor-pointer transition active:scale-95 text-left"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className={`w-8 h-8 rounded-xl ${acc.avatarColor} flex items-center justify-center font-black text-xs text-neutral-900`}>
-                                {acc.name[0]}
-                              </div>
-                              <div className="leading-tight">
-                                <h4 className="text-xs font-black text-white">{acc.name}</h4>
-                                <p className="text-[10px] text-neutral-400 font-mono">{acc.handle}</p>
-                              </div>
-                            </div>
-                            <span className="text-[10px] text-amber-400 font-black font-mono">🔥 {acc.streak}d</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-
-            {step === 'name' && (
-              <motion.div 
-                key="name"
-                variants={slideVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="space-y-5 text-left"
-              >
-                <div className="space-y-1">
-                  <h2 className="text-3xl font-black font-display text-white">What's your name?</h2>
-                  <p className="text-xs text-neutral-400">Let's set up your premium profile name.</p>
-                </div>
-
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Coach Brad"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="w-full bg-[#191624] border-2 border-purple-950/30 rounded-2xl py-3 px-4 outline-none font-bold text-white placeholder-neutral-500 text-sm focus:border-emerald-400"
-                  />
-                  {regError && <p className="text-xs text-rose-400 font-medium">{regError}</p>}
-                </div>
-
-                <button
-                  onClick={handleNameContinue}
-                  className="w-full bg-emerald-400 hover:bg-emerald-300 text-neutral-950 font-black py-4 rounded-3xl uppercase tracking-wider text-xs transition bubble-hover cursor-pointer"
-                >
-                  Continue 👊
-                </button>
-              </motion.div>
-            )}
-
-            {step === 'handle' && (
-              <motion.div 
-                key="handle"
-                variants={slideVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="space-y-5 text-left"
-              >
-                <div className="space-y-1">
-                  <h2 className="text-3xl font-black font-display text-white">Choose a handle</h2>
-                  <p className="text-xs text-neutral-400">Your unique gym identifier.</p>
-                </div>
-
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. @squatking"
-                    value={handle}
-                    onChange={(e) => setHandle(e.target.value)}
-                    className="w-full bg-[#191624] border-2 border-purple-950/30 rounded-2xl py-3 px-4 outline-none font-bold text-white placeholder-neutral-500 text-sm focus:border-emerald-400"
-                  />
-                  {regError && <p className="text-xs text-rose-400 font-medium">{regError}</p>}
-                </div>
-
-                <button
-                  onClick={handleHandleContinue}
-                  className="w-full bg-emerald-400 hover:bg-emerald-300 text-neutral-950 font-black py-4 rounded-3xl uppercase tracking-wider text-xs transition bubble-hover cursor-pointer"
-                >
-                  Confirm Handle ⚡
-                </button>
-              </motion.div>
-            )}
-
-            {step === 'streak' && (
-              <motion.div 
-                key="streak"
-                variants={slideVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="space-y-5 text-left"
-              >
-                <div className="space-y-1">
-                  <h2 className="text-3xl font-black font-display text-white">Current Streak</h2>
-                  <p className="text-xs text-neutral-400">How many consecutive days did you workout/rest?</p>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="bg-[#191624] p-4 rounded-2xl border border-purple-950/20 text-center">
-                    <span className="text-3xl font-black text-amber-400 font-display">🔥 {startingStreak} Days</span>
-                  </div>
-                  
-                  <div className="flex gap-2">
-                    {[0, 3, 5, 10, 15].map(v => (
-                      <button
-                        key={v}
-                        onClick={() => setStartingStreak(v)}
-                        className={`flex-1 py-2 rounded-xl text-xs font-black border transition cursor-pointer ${
-                          startingStreak === v 
-                            ? 'bg-amber-400 text-neutral-950 border-amber-400' 
-                            : 'bg-[#110e1a] text-neutral-400 border-purple-950/20 hover:text-white'
-                        }`}
-                      >
-                        {v}d
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setStep('avatar')}
-                  className="w-full bg-emerald-400 hover:bg-emerald-300 text-neutral-950 font-black py-4 rounded-3xl uppercase tracking-wider text-xs transition bubble-hover cursor-pointer"
-                >
-                  Continue 🚀
-                </button>
-              </motion.div>
-            )}
-
-            {step === 'avatar' && (
-              <motion.div 
-                key="avatar"
-                variants={slideVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="space-y-5 text-left"
-              >
-                <div className="space-y-1">
-                  <h2 className="text-3xl font-black font-display text-white">Signature look</h2>
-                  <p className="text-xs text-neutral-400">Choose a friendly avatar theme.</p>
-                </div>
-
-                <div className="grid grid-cols-5 gap-2.5">
-                  {AVATAR_PALETTE.map((swatch) => {
-                    const isSelected = selectedAvatarColor === swatch.colors;
-                    return (
-                      <button
-                        key={swatch.name}
-                        onClick={() => setSelectedAvatarColor(swatch.colors)}
-                        className={`h-11 rounded-2xl ${swatch.colors} flex items-center justify-center border-2 transition active:scale-95 cursor-pointer ${
-                          isSelected ? 'border-white scale-105 shadow-md' : 'border-transparent opacity-60'
-                        }`}
-                        title={swatch.name}
-                      >
-                        {isSelected && <Check className="w-4 h-4 stroke-[3] text-neutral-950" />}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <button
-                  onClick={() => onRegister(name, handle, selectedAvatarColor, startingStreak)}
-                  className="w-full bg-emerald-400 hover:bg-emerald-300 text-neutral-950 font-black py-4 rounded-3xl uppercase tracking-wider text-xs transition bubble-hover cursor-pointer"
-                >
-                  Get Started! 👊
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-        </div>
-      </div>
-    </MobileFrame>
   );
 }
 
 // --- CORE APP VIEW INNER ---
 interface AppInnerProps {
   currentUser: UserProfile;
+  setCurrentUser: React.Dispatch<React.SetStateAction<UserProfile | null>>;
   onLogout: () => void;
-  key?: string;
+  setAllAccounts: React.Dispatch<React.SetStateAction<UserProfile[]>>;
 }
 
-function AppInner({ currentUser, onLogout }: AppInnerProps) {
-  const [activeTab, setActiveTab] = useState<'messages' | 'profile'>('messages');
-  const [isPostOpen, setIsPostOpen] = useState(false);
+function AppInner({ currentUser, setCurrentUser, onLogout, setAllAccounts }: AppInnerProps) {
+  const [activeTab, setActiveTab] = useState<'feed' | 'chats' | 'post' | 'streaks' | 'profile'>('feed');
   const userId = currentUser.id;
 
-  // Sync state cleanly with localStorage prefix
-  const [buddies, setBuddies] = useState<GymBuddy[]>(() => {
-    try {
-      const saved = localStorage.getItem(`gymsocial_buddies_${userId}`);
-      return saved ? JSON.parse(saved) : INITIAL_BUDDIES;
-    } catch {
-      return INITIAL_BUDDIES;
-    }
-  });
+  // --- LOCAL PERSISTENT STORAGE ENGAGEMENT ---
+  const [buddies, setBuddies] = useState<GymBuddy[]>(() => 
+    loadUserData<GymBuddy[]>(userId, 'buddies', [])
+  );
 
-  const [posts, setPosts] = useState<WorkoutPost[]>(() => {
-    try {
-      const saved = localStorage.getItem(`gymsocial_posts_${userId}`);
-      return saved ? JSON.parse(saved) : INITIAL_POSTS;
-    } catch {
-      return INITIAL_POSTS;
-    }
-  });
+  const [posts, setPosts] = useState<WorkoutPost[]>(() => 
+    loadUserData<WorkoutPost[]>(userId, 'posts', [])
+  );
 
-  const [prs, setPrs] = useState<PersonalPR[]>(() => {
-    try {
-      const saved = localStorage.getItem(`gymsocial_prs_${userId}`);
-      return saved ? JSON.parse(saved) : INITIAL_PRS;
-    } catch {
-      return INITIAL_PRS;
-    }
-  });
+  const [prs, setPrs] = useState<PersonalPR[]>(() => 
+    loadUserData<PersonalPR[]>(userId, 'prs', [])
+  );
 
-  const [liftingStreak, setLiftingStreak] = useState<number>(() => {
-    const saved = localStorage.getItem(`gymsocial_lifting_streak_${userId}`);
-    return saved ? parseInt(saved) : currentUser.streak;
-  });
+  const [workoutDates, setWorkoutDates] = useState<string[]>(() => 
+    loadUserData<string[]>(userId, 'workout_dates', [])
+  );
 
+  const [groups, setGroups] = useState<GroupChat[]>(() => 
+    loadUserData<GroupChat[]>(userId, 'groups', [])
+  );
+
+  const [groupMessages, setGroupMessages] = useState<GroupMessage[]>(() => 
+    loadUserData<GroupMessage[]>(userId, 'group_messages', [])
+  );
+
+  // Synchronize user state with persistent storage on every change
   useEffect(() => {
-    localStorage.setItem(`gymsocial_buddies_${userId}`, JSON.stringify(buddies));
+    saveUserData(userId, 'buddies', buddies);
   }, [buddies, userId]);
 
   useEffect(() => {
-    localStorage.setItem(`gymsocial_posts_${userId}`, JSON.stringify(posts));
+    saveUserData(userId, 'posts', posts);
   }, [posts, userId]);
 
   useEffect(() => {
-    localStorage.setItem(`gymsocial_prs_${userId}`, JSON.stringify(prs));
+    saveUserData(userId, 'prs', prs);
   }, [prs, userId]);
 
   useEffect(() => {
-    localStorage.setItem(`gymsocial_lifting_streak_${userId}`, String(liftingStreak));
-  }, [liftingStreak, userId]);
+    saveUserData(userId, 'workout_dates', workoutDates);
+  }, [workoutDates, userId]);
 
+  useEffect(() => {
+    saveUserData(userId, 'groups', groups);
+  }, [groups, userId]);
+
+  useEffect(() => {
+    saveUserData(userId, 'group_messages', groupMessages);
+  }, [groupMessages, userId]);
+
+  // Calculate dynamic streak based on active logged workout dates
+  const liftingStreak = calculateStreak(workoutDates);
+
+  // Keep the user profile streak synchronized in global context too!
+  useEffect(() => {
+    if (currentUser.streak !== liftingStreak) {
+      const updatedUser = { ...currentUser, streak: liftingStreak };
+      setCurrentUser(updatedUser);
+      saveCurrentUser(updatedUser);
+      
+      // Update in accounts roster
+      setAllAccounts(prev => prev.map(a => a.id === currentUser.id ? updatedUser : a));
+    }
+  }, [liftingStreak, currentUser, setCurrentUser, setAllAccounts]);
+
+  // --- ACTIONS ---
   const handlePostCreated = (newPost: WorkoutPost) => {
     setPosts(prev => [newPost, ...prev]);
-    // Increment the active streak when posting a gym update!
-    setLiftingStreak(prev => prev + 1);
+    
+    // Track today's date in workout dates list
+    const todayStr = new Date().toISOString().split('T')[0];
+    setWorkoutDates(prev => {
+      if (prev.includes(todayStr)) return prev;
+      return [...prev, todayStr];
+    });
+  };
+
+  const handleUpdateName = (name: string, handle: string) => {
+    const cleanHandle = handle.trim().startsWith('@') ? handle.trim().toLowerCase() : `@${handle.trim().toLowerCase()}`;
+    const updated = { ...currentUser, name, handle: cleanHandle };
+    setCurrentUser(updated);
+    saveCurrentUser(updated);
+    
+    // Update accounts list
+    setAllAccounts(prev => prev.map(a => a.id === currentUser.id ? updated : a));
+  };
+
+  const handleFistBump = (postId: string) => {
+    setPosts(prev => prev.map(p => {
+      if (p.id === postId) {
+        const hasFistBumped = !p.hasFistBumped;
+        return {
+          ...p,
+          hasFistBumped,
+          fistBumps: hasFistBumped ? p.fistBumps + 1 : Math.max(0, p.fistBumps - 1)
+        };
+      }
+      return p;
+    }));
+  };
+
+  const handleAddComment = (postId: string, text: string) => {
+    setPosts(prev => prev.map(p => {
+      if (p.id === postId) {
+        return {
+          ...p,
+          comments: [
+            ...p.comments,
+            {
+              id: `c-${Date.now()}`,
+              buddyId: currentUser.id,
+              buddyName: currentUser.name,
+              buddyHandle: currentUser.handle,
+              text,
+              timestamp: new Date().toISOString()
+            }
+          ]
+        };
+      }
+      return p;
+    }));
   };
 
   return (
     <MobileFrame>
-      <div className="flex-1 flex flex-col overflow-hidden bg-[#0d0b15]">
+      <div className="flex-1 flex flex-col overflow-hidden bg-zinc-950">
         
-        {/* TAB RENDERING */}
+        {/* ACTIVE VIEW RENDERING PANEL */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {activeTab === 'messages' ? (
-            <MessagesTab 
-              buddies={buddies}
+          {activeTab === 'feed' && (
+            <FeedTab 
               posts={posts}
-              setPosts={setPosts}
               currentUser={currentUser}
-              liftingStreak={liftingStreak}
+              buddies={buddies}
+              onAddFistBump={handleFistBump}
+              onAddComment={handleAddComment}
+              setActiveTab={setActiveTab}
             />
-          ) : (
+          )}
+
+          {activeTab === 'chats' && (
+            <ChatsTab 
+              currentUser={currentUser}
+              buddies={buddies}
+              groups={groups}
+              setGroups={setGroups}
+              groupMessages={groupMessages}
+              setGroupMessages={setGroupMessages}
+            />
+          )}
+
+          {activeTab === 'post' && (
+            <PostTab 
+              currentUser={currentUser}
+              onPostCreated={handlePostCreated}
+              setActiveTab={setActiveTab}
+            />
+          )}
+
+          {activeTab === 'streaks' && (
+            <StreaksTab 
+              currentUser={currentUser}
+              buddies={buddies}
+              liftingStreak={liftingStreak}
+              workoutDates={workoutDates}
+            />
+          )}
+
+          {activeTab === 'profile' && (
             <ProfileTab 
               prs={prs}
               setPrs={setPrs}
@@ -477,60 +267,82 @@ function AppInner({ currentUser, onLogout }: AppInnerProps) {
               currentUser={currentUser}
               liftingStreak={liftingStreak}
               onLogout={onLogout}
+              onUpdateName={handleUpdateName}
             />
           )}
         </div>
 
-        {/* BUBBLY TIKTOK STYLE BOTTOM NAVIGATION */}
-        <div className="bg-[#14121d] border-t-2 border-purple-950/20 px-4 py-3.5 flex justify-between items-center z-40 select-none relative font-sans">
+        {/* 5-TAB MODERN NAVIGATION BOTTOM BAR */}
+        <div className="bg-zinc-900/90 border-t-2 border-zinc-800 px-3 py-3 flex justify-between items-center z-40 select-none relative font-sans shrink-0 backdrop-blur-md">
           
-          {/* Left Button: Messages */}
+          {/* 1. Feed */}
           <button
-            onClick={() => setActiveTab('messages')}
-            className={`flex-1 flex flex-col items-center gap-1.5 py-1.5 rounded-2xl transition duration-150 cursor-pointer ${
-              activeTab === 'messages'
-                ? 'text-emerald-400 font-black'
-                : 'text-neutral-500 hover:text-neutral-350'
+            onClick={() => setActiveTab('feed')}
+            className={`flex-1 flex flex-col items-center gap-1 py-1 rounded-xl transition duration-150 cursor-pointer ${
+              activeTab === 'feed'
+                ? 'text-red-500 font-black'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Dumbbell className="w-5 h-5 stroke-[2.5]" />
+            <span className="text-[9px] tracking-tight font-black uppercase">Feed</span>
+          </button>
+
+          {/* 2. Chats */}
+          <button
+            onClick={() => setActiveTab('chats')}
+            className={`flex-1 flex flex-col items-center gap-1 py-1 rounded-xl transition duration-150 cursor-pointer ${
+              activeTab === 'chats'
+                ? 'text-red-500 font-black'
+                : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
             <MessageSquare className="w-5 h-5 stroke-[2.5]" />
-            <span className="text-[10px] tracking-tight font-bold font-display uppercase">Messages</span>
+            <span className="text-[9px] tracking-tight font-black uppercase">Chats</span>
           </button>
 
-          {/* Center Button: Bouncing, popping TikTok post button */}
-          <div className="relative px-4 flex justify-center flex-shrink-0">
+          {/* 3. Post - Prominent Centered Action Button */}
+          <div className="relative px-3 flex justify-center shrink-0">
             <button
-              onClick={() => setIsPostOpen(true)}
-              className="flex items-center justify-center -mt-9 bg-emerald-400 hover:bg-emerald-300 text-neutral-950 w-14 h-14 rounded-full shadow-[0_5px_20px_rgba(52,211,153,0.3)] active:scale-90 transition border-4 border-[#0d0b15] z-50 cursor-pointer select-none bubble-hover"
+              onClick={() => setActiveTab('post')}
+              className={`flex items-center justify-center -mt-8 w-13 h-13 rounded-2xl transition shadow-lg border-4 border-zinc-950 z-50 cursor-pointer bubble-hover ${
+                activeTab === 'post'
+                  ? 'bg-red-600 text-white shadow-red-600/40 border-red-500/50'
+                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-800'
+              }`}
               title="Post Gym Update"
             >
-              <Plus className="w-7 h-7 stroke-[4]" />
+              <Plus className="w-6.5 h-6.5 stroke-[3.5]" />
             </button>
           </div>
 
-          {/* Right Button: Profile */}
+          {/* 4. Streaks */}
+          <button
+            onClick={() => setActiveTab('streaks')}
+            className={`flex-1 flex flex-col items-center gap-1 py-1 rounded-xl transition duration-150 cursor-pointer ${
+              activeTab === 'streaks'
+                ? 'text-red-500 font-black'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Flame className="w-5 h-5 stroke-[2.5]" />
+            <span className="text-[9px] tracking-tight font-black uppercase">Streaks</span>
+          </button>
+
+          {/* 5. Profile */}
           <button
             onClick={() => setActiveTab('profile')}
-            className={`flex-1 flex flex-col items-center gap-1.5 py-1.5 rounded-2xl transition duration-150 cursor-pointer ${
+            className={`flex-1 flex flex-col items-center gap-1 py-1 rounded-xl transition duration-150 cursor-pointer ${
               activeTab === 'profile'
-                ? 'text-emerald-400 font-black'
-                : 'text-neutral-500 hover:text-neutral-350'
+                ? 'text-red-500 font-black'
+                : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
             <User className="w-5 h-5 stroke-[2.5]" />
-            <span className="text-[10px] tracking-tight font-bold font-display uppercase">Profile</span>
+            <span className="text-[9px] tracking-tight font-black uppercase">Profile</span>
           </button>
 
         </div>
-
-        {/* FORCED CAPTION POST MODAL */}
-        <PostModal 
-          isOpen={isPostOpen}
-          onClose={() => setIsPostOpen(false)}
-          currentUser={currentUser}
-          liftingStreak={liftingStreak}
-          onPostCreated={handlePostCreated}
-        />
 
       </div>
     </MobileFrame>

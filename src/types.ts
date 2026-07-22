@@ -94,8 +94,12 @@ export interface UserProfile {
   id: string;
   name: string;
   handle: string;
+  email?: string;
+  password?: string;
   avatarColor: string;
   streak: number;
   joinedDate: string;
+  primaryGoal?: string; // e.g., "Muscle Building & Hypertrophy", "Powerlifting & Raw Strength", "Fat Loss & Conditioning"
+  experienceLevel?: string; // e.g., "Rookie Lifter (0-1 yrs)", "Intermediate Iron Addict", "Veteran Heavyweight"
 }
 
